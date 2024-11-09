@@ -4,7 +4,7 @@ import discord
 from dotenv import load_dotenv
 import requests
 import base64
-import json
+from geopy.geocoders import Nominatim
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -16,6 +16,8 @@ client = discord.Client(intents=intents)
 CHANNELid = 1304345339440136263
 global channel
 channel = client.get_channel(CHANNELid)
+CHANNELid2 = 1292139882629828660
+channel2 = client.get_channel(CHANNELid2)
 
 #interpret weather API
 
@@ -64,6 +66,16 @@ def getweather(location):
     else:
         return f"The temperature in {location} is {temp}°C with {weatherdesc}."
 
+def get_lat_long(location_name):
+    geolocator = Nominatim(user_agent="geopy_example",timeout=10)
+    location = geolocator.geocode(location_name)
+
+    if location:
+        latitude, longitude = location.latitude, location.longitude
+        return latitude, longitude
+    else:
+        return None
+
 
 @client.event
 async def on_ready():
@@ -87,26 +99,30 @@ async def on_member_join(member):
         f'Hi {member.name}, welcome to the Discord server!'
     )
 
-@client.event
-async def on_message(message):
-    CHANNELid2 = client.get_channel(1292139882629828660)
-    channel2 = client.get_channel(CHANNELid2)
-    if message.author.name == 'toxonium':
-        if "bored" in message.content.lower():
-            await channel2.send(f"{message.author.mention} is bored. Big surprise. Have you tried not doing that maybe?")
-
 
 @client.event
 async def on_message(message):
     CHANNELid = 1304345339440136263
+    CHANNELid2 = 1292139882629828660
     global channel
     channel = client.get_channel(CHANNELid)
+    channel2 = client.get_channel(CHANNELid2)
     
     greetings = ["hi", "hello", "hey", "sup", "yo", "greetings"]
     goodbyes = ["bye", "goodbye", "see ya", "later", "cya", "goodnight", "gn", "good night", "going to bed"]
 
     if message.channel.id != CHANNELid:
-        return
+        if message.channel.id == CHANNELid2:
+            if "bored" in message.content.lower():
+                if message.author.id == 1031295377946726581:
+                    await channel2.send(f"{message.author.mention} is bored. Big surprise. Have you tried not doing that maybe?")
+                    return
+                else:
+                    return
+            else:
+                return
+        else:
+            return
     
     if message.author == client.user:
         return
@@ -121,15 +137,44 @@ async def on_message(message):
                 break
             for i in range(len(greetings)):
                 if greetings[i] == str(messages[x]).lower():
-                    if message.author.nick == None:
-                        await channel.send(f"Hello {message.author.name}")
-                    else:
-                        await channel.send(f"Hello {message.author.nick}")
+                    member = await message.guild.fetch_member(message.author.id)
+                    await channel.send(f"Hello {member.nick}")
                     loop1break = True
                     break
         
         if "image" in str(message.content).lower():
             await channel.send(file=discord.File("testImage.jpg"))
+
+        if "protoai assign role" in (message.content).lower():
+            if message.author.guild_permissions.administrator:
+                text = message.content.split(" ")
+                try:
+                    member = await message.guild.fetch_member(text[3])
+                except:
+                    try:
+                        id = text[3].replace("<","")
+                        id = id.replace(">","")
+                        id = id.replace("@","")
+                        id = id.replace("!","")
+                        member = await message.guild.fetch_member(id)
+                    except:
+                        await channel.send(f"Invalid user")
+                        return
+
+
+                role = discord.utils.get(message.guild.roles,name=text[4])
+                if text[5] == "add":
+                    await member.add_roles(role)
+                    await channel.send(f"Role {role} added to {member}")
+                elif text[5] == "remove":
+                    await member.remove_roles(role)
+                    await channel.send(f"Role {role} removed from {member}")
+                else:
+                    await channel.send(f"Invalid command")
+            else:
+                await channel.send(f"Sorry, you do not have permission to use this command.")
+                
+
         
         for x in range(len(messages)):
             if loop1break == True:
@@ -147,10 +192,8 @@ async def on_message(message):
                 break
             for i in range(len(goodbyes)):
                 if goodbyes[i] == str(messages[x]).lower():
-                    if message.author.nick == None:
-                        await channel.send(f"Goodbye {message.author.name}")
-                    else:
-                        await channel.send(f"Goodbye {message.author.nick}")
+                    member = await message.guild.fetch_member(message.author.id)
+                    await channel.send(f"Goodbye {member.nick}")
                     loop2break = True
                     break
         
@@ -161,7 +204,8 @@ async def on_message(message):
                 role = discord.utils.find(lambda r: r.name == 'Minor', message.guild.roles)
                 if role not in message.author.roles:
                     if (goodbyes[i] + "~") == str(messages[x]).lower():
-                        await channel.send(f"Goodbye {message.author.nick}~", reference=message)
+                        member = await message.guild.fetch_member(message.author.id)
+                        await channel.send(f"Goodbye {member.nick}~", reference=message)
                         loop2break = True
                         break
         
@@ -173,28 +217,30 @@ async def on_message(message):
             await channel.send("4. Weather in [location] ('What is the weather in [location]')")
             await channel.send("5. 'Back' and 'Bored' responses (Kinda obvious)")
             await channel.send("6. Smash (Don't use this please)")
-            await channel.send("7. ProtoAI Shutdown Protocol (Owner only)")
+            await channel.send("7. Time in [location] ('What is the time in [location]')")
+            await channel.send("8. ProtoAI Assign Role (Admin only: 'Protoai Assign Role [role] [user] [add/remove]')")
+            await channel.send("9. ProtoAI Shutdown Protocol (Owner only)")
 
 #Absolute fucking tortue DO NOT ATTEMPT TO FIX
-            """         
-            if "what is the time in" in (message.content).lower():
+
+        if "what is the time in" in (message.content).lower():
             requestedtimeloc = message.content.split("in ")
             requestedtimeloc = requestedtimeloc[1]
-            requestedtimeloc = requestedtimeloc.split(", ")
-            for i in range(len(requestedtimeloc)):
-                requestedtimeloc[i] = requestedtimeloc[i].capitalize()
-                requestedtimeloc[i] = requestedtimeloc[i].replace(" ", "_")
-            request = f"https://timeapi.io/api/time/current/zone?timeZone={requestedtimeloc[0]}%2F{requestedtimeloc[1]}"
-            locationtime = requests.get(request)
-            await channel.send(locationtime)
-            await channel.send(locationtime.json())
+            latlong = get_lat_long(requestedtimeloc)
+            if latlong:
+                timezone_url = f'https://timeapi.io/api/time/current/coordinate?latitude={latlong[0]}&longitude={latlong[1]}'
+                response = requests.get(timezone_url)
+                data = response.json()
+                hour = data['hour']
+                if hour > 12:
+                    hour = hour - 12
+                    time = f"{hour}:{data['minute']} PM"
+                else:
+                    time = f"{hour}:{data['minute']} AM"
+                await channel.send(f"The time in {(requestedtimeloc).capitalize()} is {time}, on {data['dayOfWeek']}, {data['month']}/{data['day']}/{data['year']}")
+            else:
+                await channel.send(f"Invalid location")
 
-            data = dict(locationtime.json())
-            requestedtimeloc[0] = requestedtimeloc[0].replace("_", " ")
-            requestedtimeloc[1] = requestedtimeloc[1].replace("_", " ")
-            fullprint = (f"The time in {requestedtimeloc[0]}, {requestedtimeloc[1]} is {data['date']} {data['time']}")
-            await channel.send(fullprint)
-            """
 
         if "what is the weather in" in (message.content).lower():
             splitmessage = message.content.split(" in ")

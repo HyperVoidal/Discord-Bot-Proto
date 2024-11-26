@@ -1,18 +1,38 @@
 # bot.py
 import os
 import discord
+import discord.ext
+from discord.ext import commands
+from discord import app_commands
 from dotenv import load_dotenv
 import requests
 import base64
 from geopy.geocoders import Nominatim
+import json
+import time
+import threading
+import asyncio
+import PIL
+from PIL import Image
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
+MY_GUILD = discord.Object(id = 1292139882143027311)
+
+class MyClient(discord.Client):
+    def __init__(self, *, intents:discord.Intents):
+        super().__init__(intents=intents)
+        self.tree = discord.app_commands.CommandTree(self)
+
+    async def setup_hook(self):
+        self.tree.copy_global_to(guild=MY_GUILD)
+        await self.tree.sync(guild=MY_GUILD)
+
 
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
-client = discord.Client(intents=intents)
+client = MyClient(intents=intents)
 CHANNELid = 1304345339440136263
 global channel
 channel = client.get_channel(CHANNELid)
@@ -26,6 +46,10 @@ code = f.read()
 f.close()
 b = base64.b64decode(code)
 api_key = b.decode("utf-8")
+
+
+
+
 
 def get_weather(location):
     global data
@@ -76,6 +100,148 @@ def get_lat_long(location_name):
     else:
         return None
 
+@client.tree.command()
+@app_commands.describe(first_value = "Location to get the weather for.")
+async def weather(interaction: discord.Interaction, first_value: str):
+    """Get the weather in a location."""
+    try:
+        get_weather(location = first_value)
+        makereadable(data)
+        if itbroken == True:
+            await interaction.response.send_message("Invalid location", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"The temperature in {str(first_value).capitalize()} is {temp}°C with {weatherdesc}.")
+        return  # This is required to prevent the command from timing out
+    except:
+        await interaction.response.send_message("Invalid location", ephemeral=True)
+        return
+
+@client.tree.command()
+@app_commands.describe(first_value = "Location to get the time for.")
+async def time(interaction: discord.Interaction, first_value: str):
+    """Get the time in a location."""
+    try:
+        latlong = get_lat_long(location_name = first_value)
+        if latlong:
+            timezone_url = f'https://timeapi.io/api/time/current/coordinate?latitude={latlong[0]}&longitude={latlong[1]}'
+            response = requests.get(timezone_url)
+            data = response.json()
+            hour = data['hour']
+            if hour > 12:
+                hour = hour - 12
+                times = f"{hour}:{data['minute']} PM"
+            else:
+                times = f"{hour}:{data['minute']} AM"
+            await interaction.response.send_message(f"The time in {(first_value).capitalize()} is {times}, on {data['dayOfWeek']}, {data['month']}/{data['day']}/{data['year']}")
+        else:
+            await interaction.response.send_message(f"Invalid location", ephemeral=True)
+        return  # This is required to prevent the command from timing out
+    except:
+        await interaction.response.send_message(f"Invalid location", ephemeral=True)
+        return
+
+async def poll1(channelmsg, user, pollquestion, options):
+    poll = await channelmsg.send(f"# Poll by {user}: {pollquestion}")
+    reaction = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+    for i in range(len(options)):
+        await poll.add_reaction(reaction[i])
+    optionlist = []
+    for i in range(len(options)):
+        optionlist.append(f"{reaction[i]} - {options[i]}")
+    optionlist = "\n".join(optionlist)
+    await channelmsg.send(f"**Options:**\n{optionlist}")
+    await poll.pin()
+    return
+    
+@client.tree.command()
+@app_commands.describe(first_value="Channel to conduct the poll in.", second_value="Poll question.", third_value="Options for the poll.")
+async def poll(interaction: discord.Interaction, first_value: str, second_value: str, third_value: str):
+    """Start a poll in a channel. Separate options with a comma."""
+    user = interaction.user
+    text = third_value.split("/")
+    channelmsg = discord.utils.get(interaction.guild.channels, name=first_value)
+    if channelmsg is None:
+        await interaction.response.send_message(f"Invalid channel", ephemeral=True)
+        return
+    pollquestion = second_value
+    options = text
+    await interaction.response.send_message(f"Creating poll in {first_value}...", ephemeral=True)
+    await poll1(channelmsg, user, pollquestion, options)
+        
+@client.tree.command()
+@app_commands.describe(first_value="Role to assign.", second_value="User to assign the role to.", third_value="Add or remove the role.")
+async def assignrole(interaction: discord.Interaction, first_value: str, second_value: str, third_value: str):
+    """Assign a role to a user."""
+    if interaction.user.guild_permissions.administrator:
+        text = [first_value, second_value, third_value]
+        try:
+            member = await interaction.guild.fetch_member(text[1])
+        except:
+            try:
+                id = text[1].replace("<","")
+                id = id.replace(">","")
+                id = id.replace("@","")
+                id = id.replace("!","")
+                member = await interaction.guild.fetch_member(id)
+            except:
+                await interaction.response.send_message(f"Invalid user", ephemeral=True)
+                return
+        role = discord.utils.find(lambda r: r.name == text[0], interaction.guild.roles)
+        if text[2] == "add":
+            await member.add_roles(role)
+            await interaction.response.send_message(f"Role {role} added to {member}", ephemeral=True)
+        elif text[2] == "remove":
+            await member.remove_roles(role)
+            await interaction.response.send_message(f"Role {role} removed from {member}", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"Invalid command", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"Sorry, you do not have permission to use this command.", ephemeral=True)
+
+@client.tree.command()
+@app_commands.describe(first_value="User whose profile picture you wish to show.")
+async def profilepic(interaction: discord.Interaction, first_value: str):
+    """Show the profile picture of a user."""
+    try:
+        member = client.get_user(int(first_value))
+    except ValueError:
+        try:
+            id = first_value.replace("<", "").replace(">", "").replace("@", "").replace("!", "")
+            member = client.get_user(int(id))
+        except Exception as e:
+            print(e)
+            await interaction.response.send_message(f"Invalid user", ephemeral=True)
+            return
+    
+    if member is None:
+        await interaction.response.send_message(f"User not found", ephemeral=True)
+        return
+    
+    avatar_url = member.avatar.url
+    embed = discord.Embed(title=f"{member.name}'s Profile Picture", color=0x00ff00)
+    embed.set_image(url=avatar_url)
+    await interaction.response.send_message(embed=embed)
+
+@client.tree.command()
+@app_commands.describe(file="The image file to analyze.")
+async def imagepixels(interaction: discord.Interaction, file: discord.Attachment):
+    channel = interaction.channel
+    """Show the pixels of an image."""
+    if not file:
+        await interaction.response.send_message("Please upload an image file.", ephemeral=True)
+        return
+
+    image_url = file.url
+    response = requests.get(image_url)
+    with open("downloadedImage.jpg", "wb") as f:
+        f.write(response.content)
+    
+    img = Image.open("downloadedImage.jpg")
+    width, height = img.size
+    pixels = list(img.getdata())
+    imagereturn = await interaction.response.send_message(file=discord.File("downloadedImage.jpg"))
+    await channel.send(f"Total pixels: {len(pixels)}, Size: {width}x{height}")
+
 
 @client.event
 async def on_ready():
@@ -98,6 +264,7 @@ async def on_member_join(member):
     await dm.send(
         f'Hi {member.name}, welcome to the Discord server!'
     )
+
 
 
 @client.event
@@ -138,41 +305,15 @@ async def on_message(message):
             for i in range(len(greetings)):
                 if greetings[i] == str(messages[x]).lower():
                     member = await message.guild.fetch_member(message.author.id)
-                    await channel.send(f"Hello {member.nick}")
+                    if member.nick == None:
+                        await channel.send(f"Hello {member.name}")
+                    else:
+                        await channel.send(f"Hello {member.nick}")
                     loop1break = True
                     break
         
         if "image" in str(message.content).lower():
             await channel.send(file=discord.File("testImage.jpg"))
-
-        if "protoai assign role" in (message.content).lower():
-            if message.author.guild_permissions.administrator:
-                text = message.content.split(" ")
-                try:
-                    member = await message.guild.fetch_member(text[3])
-                except:
-                    try:
-                        id = text[3].replace("<","")
-                        id = id.replace(">","")
-                        id = id.replace("@","")
-                        id = id.replace("!","")
-                        member = await message.guild.fetch_member(id)
-                    except:
-                        await channel.send(f"Invalid user")
-                        return
-
-
-                role = discord.utils.get(message.guild.roles,name=text[4])
-                if text[5] == "add":
-                    await member.add_roles(role)
-                    await channel.send(f"Role {role} added to {member}")
-                elif text[5] == "remove":
-                    await member.remove_roles(role)
-                    await channel.send(f"Role {role} removed from {member}")
-                else:
-                    await channel.send(f"Invalid command")
-            else:
-                await channel.send(f"Sorry, you do not have permission to use this command.")
                 
 
         
@@ -193,7 +334,10 @@ async def on_message(message):
             for i in range(len(goodbyes)):
                 if goodbyes[i] == str(messages[x]).lower():
                     member = await message.guild.fetch_member(message.author.id)
-                    await channel.send(f"Goodbye {member.nick}")
+                    if member.nick == None:
+                        await channel.send(f"Goodbye {member.name}")
+                    else:
+                        await channel.send(f"Goodbye {member.nick}")
                     loop2break = True
                     break
         
@@ -205,49 +349,31 @@ async def on_message(message):
                 if role not in message.author.roles:
                     if (goodbyes[i] + "~") == str(messages[x]).lower():
                         member = await message.guild.fetch_member(message.author.id)
-                        await channel.send(f"Goodbye {member.nick}~", reference=message)
+                        if member.nick == None:
+                            await channel.send(f"Goodbye {member.name}~", reference=message)
+                        else:
+                            await channel.send(f"Goodbye {member.nick}~", reference=message)
                         loop2break = True
                         break
         
         if "protoai commands" in (message.content).lower():
             await channel.send("# COMMANDS:")
-            await channel.send("1. Hello and Goodbye (AUTO)")
-            await channel.send("2. Greeting new members (AUTO)")
-            await channel.send("3. Dr House Image ('Image')")
-            await channel.send("4. Weather in [location] ('What is the weather in [location]')")
-            await channel.send("5. 'Back' and 'Bored' responses (Kinda obvious)")
-            await channel.send("6. Smash (Don't use this please)")
-            await channel.send("7. Time in [location] ('What is the time in [location]')")
-            await channel.send("8. ProtoAI Assign Role (Admin only: 'Protoai Assign Role [role] [user] [add/remove]')")
-            await channel.send("9. ProtoAI Shutdown Protocol (Owner only)")
-
-#Absolute fucking tortue DO NOT ATTEMPT TO FIX
-
-        if "what is the time in" in (message.content).lower():
-            requestedtimeloc = message.content.split("in ")
-            requestedtimeloc = requestedtimeloc[1]
-            latlong = get_lat_long(requestedtimeloc)
-            if latlong:
-                timezone_url = f'https://timeapi.io/api/time/current/coordinate?latitude={latlong[0]}&longitude={latlong[1]}'
-                response = requests.get(timezone_url)
-                data = response.json()
-                hour = data['hour']
-                if hour > 12:
-                    hour = hour - 12
-                    time = f"{hour}:{data['minute']} PM"
-                else:
-                    time = f"{hour}:{data['minute']} AM"
-                await channel.send(f"The time in {(requestedtimeloc).capitalize()} is {time}, on {data['dayOfWeek']}, {data['month']}/{data['day']}/{data['year']}")
-            else:
-                await channel.send(f"Invalid location")
-
-
-        if "what is the weather in" in (message.content).lower():
-            splitmessage = message.content.split(" in ")
-            await channel.send(getweather(splitmessage[1]))
+            await channel.send("1. Hello and Goodbye (AUTO)\n" +
+                               "2. Greeting new members (AUTO)\n" +
+                               "3. Dr House Image ('Image')\n" +
+                               "4. Weather in [location] ('What is the weather in [location] ('/' Command)')\n" +
+                               "5. 'Back' and 'Bored' responses (Kinda obvious)\n" +
+                               "6. Smash (Don't use this please)\n" +
+                               "7. Time in [location] ('What is the time in [location]'), ('/' Command)\n" +
+                               "8. ProtoAI Assign Role (Admin only: 'Protoai Assign Role: [role], [user], [add/remove]'), ('/' Command)\n" +
+                               "9. ProtoAI Conduct Poll ('Protoai Conduct Poll: [channel], [poll question], [option 1/option 2/option 3/etc] (up to 10 options)'), ('/' Command)\n" +
+                               "10. ProtoAI Return Name ('Protoai Return Name: [user id]'), ('/' Command)\n" +
+                               "11. Profile Picture Return (WIP)\n" +
+                               "12. ProtoAI Shutdown Protocol (Owner only)")
         
         if "im back" in (message.content).lower() or "i'm back" in (message.content).lower():
             await channel.send(f"Hi back, I'm ProtoAI")
+        
         
         if "im bored" in (message.content).lower() or "i'm bored" in (message.content).lower():
             await channel.send(f"Hi bored, I'm ProtoAI")
@@ -279,4 +405,20 @@ async def on_message(message):
         if ":3" in (message.content).lower():
             await channel.send(f":3")
         
+        if "uwu" in (message.content).lower():
+            await channel.send(f"UwU")
+        
+        if (message.content).lower() == "super":
+            await channel.send(f"MACHO")
+            await channel.send(f"-# *messgae from owner: fuck you for making me add this bar*")
+        
+        if "protoai return name" in (message.content).lower():
+            text = message.content.split(" ")
+            text = text[3]
+            await message.channel.send(f"<@{text}> is the requested user. ")
+        
+        if "good bot" in (message.content).lower():
+            if client.user.mentioned_in(message):
+                await message.channel.send("^_^ Thank you!", reference=message)
+
 client.run(TOKEN)

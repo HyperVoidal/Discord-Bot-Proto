@@ -225,10 +225,11 @@ async def profilepic(interaction: discord.Interaction, first_value: str):
 @client.tree.command()
 @app_commands.describe(file="The image file to analyze.")
 async def imagepixels(interaction: discord.Interaction, file: discord.Attachment):
-    channel = interaction.channel
     """Show the pixels of an image."""
+    await interaction.response.defer()  # Acknowledge the interaction immediately
+
     if not file:
-        await interaction.response.send_message("Please upload an image file.", ephemeral=True)
+        await interaction.followup.send("Please upload an image file.", ephemeral=True)
         return
 
     image_url = file.url
@@ -239,9 +240,8 @@ async def imagepixels(interaction: discord.Interaction, file: discord.Attachment
     img = Image.open("downloadedImage.jpg")
     width, height = img.size
     pixels = list(img.getdata())
-    imagereturn = await interaction.response.send_message(file=discord.File("downloadedImage.jpg"))
-    await channel.send(f"Total pixels: {len(pixels)}, Size: {width}x{height}")
-
+    await interaction.followup.send(file=discord.File("downloadedImage.jpg"))
+    await interaction.followup.send(f"Total pixels: {len(pixels)}, Size: {width}x{height}")
 
 @client.event
 async def on_ready():

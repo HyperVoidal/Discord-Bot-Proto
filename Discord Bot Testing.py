@@ -1,21 +1,47 @@
 # bot.py
 import os
 import discord
+import discord.ext
+from discord.ext import commands
+from discord import app_commands
 from dotenv import load_dotenv
 import requests
 import base64
+from geopy.geocoders import Nominatim
 import json
+import time
+import threading
+import asyncio
+import PIL
+from PIL import Image
+import re
+from deep_translator import GoogleTranslator, single_detection
+import time as pytime
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
+MY_GUILD = discord.Object(id = 1452482779727003821)
+TESTINGSERVER = discord.Object(id= 1290645316021915648)
+
+class MyBot(commands.Bot):
+    def __init__(self, *, intents:discord.Intents):
+        super().__init__(command_prefix="!", intents=intents)
+
+    async def setup_hook(self):
+        await self.tree.sync(guild=MY_GUILD)
+
 
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
-client = discord.Client(intents=intents)
-CHANNELid = 1304345339440136263
+client = MyBot(intents=intents)
+CHANNELid = 1304345339440136263 
 global channel
 channel = client.get_channel(CHANNELid)
+CHANNELid2 = 1292139882629828660
+channel2 = client.get_channel(CHANNELid2)
+global rpchannel
+rpchannel = None
 
 #interpret weather API
 
@@ -64,173 +90,294 @@ def getweather(location):
     else:
         return f"The temperature in {location} is {temp}°C with {weatherdesc}."
 
+def get_lat_long(location_name):
+    geolocator = Nominatim(user_agent="geopy_example",timeout=10)
+    location = geolocator.geocode(location_name)
+
+    if location:
+        latitude, longitude = location.latitude, location.longitude
+        return latitude, longitude
+    else:
+        return None
+
+@client.tree.command()
+@app_commands.describe(first_value = "Location to get the weather for.")
+async def weather(interaction: discord.Interaction, first_value: str):
+    """Get the weather in a location."""
+    try:
+        get_weather(location = first_value)
+        makereadable(data)
+        if itbroken == True:
+            await interaction.response.send_message("Invalid location", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"The temperature in {str(first_value).capitalize()} is {temp}°C with {weatherdesc}.")
+        return  # This is required to prevent the command from timing out
+    except:
+        await interaction.response.send_message("Invalid location", ephemeral=True)
+        return
+
+@client.tree.command()
+@app_commands.describe(first_value = "Location to get the time for.")
+async def time(interaction: discord.Interaction, first_value: str):
+    """Get the time in a location."""
+    try:
+        latlong = get_lat_long(location_name = first_value)
+        if latlong:
+            timezone_url = f'https://timeapi.io/api/time/current/coordinate?latitude={latlong[0]}&longitude={latlong[1]}'
+            response = requests.get(timezone_url)
+            data = response.json()
+            hour = data['hour']
+            if hour > 12:
+                hour = hour - 12
+                times = f"{hour}:{data['minute']} PM"
+            else:
+                times = f"{hour}:{data['minute']} AM"
+            await interaction.response.send_message(f"The time in {(first_value).capitalize()} is {times}, on {data['dayOfWeek']}, {data['month']}/{data['day']}/{data['year']}")
+        else:
+            await interaction.response.send_message(f"Invalid location", ephemeral=True)
+        return  # This is required to prevent the command from timing out
+    except:
+        await interaction.response.send_message(f"Invalid location", ephemeral=True)
+        return
+
+async def poll1(channelmsg, user, pollquestion, options):
+    poll = await channelmsg.send(f"# Poll by {user}: {pollquestion}")
+    reaction = ["1️⃣","2️⃣","3️⃣","4️⃣","5️⃣","6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+    for i in range(len(options)):
+        await poll.add_reaction(reaction[i])
+    optionlist = []
+    for i in range(len(options)):
+        optionlist.append(f"{reaction[i]} - {options[i]}")
+    optionlist = "\n".join(optionlist)
+    await channelmsg.send(f"**Options:**\n{optionlist}")
+    await poll.pin()
+    return
+    
+@client.tree.command()
+@app_commands.describe(first_value="Channel to conduct the poll in.", second_value="Poll question.", third_value="Options for the poll.")
+async def poll(interaction: discord.Interaction, first_value: str, second_value: str, third_value: str):
+    """Start a poll in a channel. Separate options with a comma."""
+    user = interaction.user
+    text = third_value.split("/")
+    channelmsg = discord.utils.get(interaction.guild.channels, name=first_value)
+    if channelmsg is None:
+        await interaction.response.send_message(f"Invalid channel", ephemeral=True)
+        return
+    pollquestion = second_value
+    options = text
+    await interaction.response.send_message(f"Creating poll in {first_value}...", ephemeral=True)
+    await poll1(channelmsg, user, pollquestion, options)
+        
+@client.tree.command()
+@app_commands.describe(first_value="Role to assign.", second_value="User to assign the role to.", third_value="Add or remove the role.")
+async def assignrole(interaction: discord.Interaction, first_value: str, second_value: str, third_value: str):
+    """Assign a role to a user."""
+    if interaction.user.guild_permissions.administrator:
+        text = [first_value, second_value, third_value]
+        try:
+            member = await interaction.guild.fetch_member(text[1])
+        except:
+            try:
+                id = text[1].replace("<","")
+                id = id.replace(">","")
+                id = id.replace("@","")
+                id = id.replace("!","")
+                member = await interaction.guild.fetch_member(id)
+            except:
+                await interaction.response.send_message(f"Invalid user", ephemeral=True)
+                return
+        role = discord.utils.find(lambda r: r.name == text[0], interaction.guild.roles)
+        if text[2] == "add":
+            await member.add_roles(role)
+            await interaction.response.send_message(f"Role {role} added to {member}", ephemeral=True)
+        elif text[2] == "remove":
+            await member.remove_roles(role)
+            await interaction.response.send_message(f"Role {role} removed from {member}", ephemeral=True)
+        else:
+            await interaction.response.send_message(f"Invalid command", ephemeral=True)
+    else:
+        await interaction.response.send_message(f"Sorry, you do not have permission to use this command.", ephemeral=True)
+
+@client.tree.command()
+@app_commands.describe(first_value="User whose profile picture you wish to show.")
+async def profilepic(interaction: discord.Interaction, first_value: str):
+    """Show the profile picture of a user."""
+    try:
+        member = client.get_user(int(first_value))
+    except ValueError:
+        try:
+            id = first_value.replace("<", "").replace(">", "").replace("@", "").replace("!", "")
+            member = client.get_user(int(id))
+        except Exception as e:
+            print(e)
+            await interaction.response.send_message(f"Invalid user", ephemeral=True)
+            return
+    
+    if member is None:
+        await interaction.response.send_message(f"User not found", ephemeral=True)
+        return
+    
+    avatar_url = member.avatar.url
+    embed = discord.Embed(title=f"{member.name}'s Profile Picture", color=0x00ff00)
+    embed.set_image(url=avatar_url)
+    await interaction.response.send_message(embed=embed)
+
+@client.tree.command()
+@app_commands.describe(file="The image file to analyze.")
+async def imagepixels(interaction: discord.Interaction, file: discord.Attachment):
+    """Show the pixels of an image."""
+    await interaction.response.defer()  # Acknowledge the interaction immediately
+
+    if not file:
+        await interaction.followup.send("Please upload an image file.", ephemeral=True)
+        return
+
+    image_url = file.url
+    response = requests.get(image_url)
+    with open("downloadedImage.jpg", "wb") as f:
+        f.write(response.content)
+    
+    img = Image.open("downloadedImage.jpg")
+    width, height = img.size
+    pixels = list(img.getdata())
+    await interaction.followup.send(file=discord.File("downloadedImage.jpg"))
+    await interaction.followup.send(f"Total pixels: {len(pixels)}, Size: {width}x{height}")
+
+@client.tree.command()
+@app_commands.guilds(TESTINGSERVER, MY_GUILD, discord.Object(id=890354513649729546), )
+@app_commands.describe(nummessages="The number of messages to purge.")
+async def messagepurge(interaction: discord.Interaction, nummessages: int):
+    """Purge a number of messages from the channel."""
+    #check if user has permission to manage messages
+    if interaction.user.guild_permissions.manage_messages:
+        permissions = interaction.channel.permissions_for(interaction.guild.me)
+        if permissions.manage_messages:
+            await interaction.response.send_message(f"Purging {nummessages} messages...", ephemeral=True)
+            await interaction.channel.purge(limit=nummessages)
+            await interaction.followup.send(f"Purged {nummessages} messages.", ephemeral=False)
+        else:
+            await interaction.response.send_message("I don't have permission to delete messages TwT", ephemeral=True)
+    else:
+        await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+
+
+"""
+@client.tree.command()
+@app_commands.describe(first_value="The value to add to the counter.")
+@app_commands.guilds(discord.Object(id=890354513649729546))  # Specify the guild ID here
+async def kangthrowcounter(interaction: discord.Interaction, first_value: int):
+    #Count the number of times Kang has thrown.
+    if interaction.user.id == 525919351489036308:
+        await interaction.response.send_message("Nuh uh :3", ephemeral=True)
+        return
+    with open("KangThrowCounter.txt", "r") as f:
+        count = f.read()
+    if count == "":
+        count = 0
+    if int(first_value) < 0:
+        first_value -= first_value * 2
+    c = int(count) + first_value
+    with open("KangThrowCounter.txt", "w") as f:
+        f.write(str(c))
+    channel = interaction.channel
+    await interaction.response.send_message(f"Added {first_value} to the counter.")
+    await channel.send(f"Kang has thrown {c} times so far.")
+"""
+    
+@client.tree.command(name='sync', description='Owner only')
+async def sync(interaction: discord.Interaction):
+    if interaction.user.id == 702096481435254875:
+        await client.tree.sync()
+        print('Command tree synced.')
+        await interaction.response.send_message("Command tree synced.")
+    else: 
+        await interaction.response.send_message('You must be the owner to use this command!')
+
+
+
 
 @client.event
 async def on_ready():
-
-    CHANNELid = 1304345339440136263
-    global channel
-    channel = client.get_channel(CHANNELid)
     print(f'{client.user} has connected to Discord!')
-    await client.change_presence(activity=discord.Game(name="with your data"))
-    await channel.send(f"ProtoAI Systems Initialised.") #  Sends message to channel
+    await client.change_presence(activity=discord.Game(name="Playing with your data"))
+    with open("AIRPMem.txt", "w") as f:
+        #wipe memory
+        f.write("")
 
     
 
 @client.event
 async def on_member_join(member):
-    CHANNELid = 1304345339440136263
-    global channel
-    channel = client.get_channel(CHANNELid)
     dm = await member.create_dm()
     await dm.send(
         f'Hi {member.name}, welcome to the Discord server!'
     )
 
 @client.event
-async def on_message(message):
-    CHANNELid2 = client.get_channel(1292139882629828660)
-    channel2 = client.get_channel(CHANNELid2)
-    if message.author.name == 'toxonium':
-        if "bored" in message.content.lower():
-            await channel2.send(f"{message.author.mention} is bored. Big surprise. Have you tried not doing that maybe?")
+async def on_message_delete(message):
+    # Ignore messages from the bot itself
+    if message.author == client.user:
+        return
+    else:
+        message_log = f'<@{message.author.id}> ({message.author}) tried to delete: "{message.content}" from {message.channel}!'
+        logchannel = client.get_channel(1373976045547425822)
+        await logchannel.send(message_log)
+        # Append the message log to a file
+        with open("message_log.txt", "a") as f:
+            f.write(message_log + f"Localtime: {pytime.strftime('%Y-%m-%d %H:%M:%S', pytime.localtime())} UTC+8")
+
 
 
 @client.event
 async def on_message(message):
-    CHANNELid = 1304345339440136263
-    global channel
-    channel = client.get_channel(CHANNELid)
-    
-    greetings = ["hi", "hello", "hey", "sup", "yo", "greetings"]
-    goodbyes = ["bye", "goodbye", "see ya", "later", "cya", "goodnight", "gn", "good night", "going to bed"]
-
-    if message.channel.id != CHANNELid:
-        return
-    
+    # Ignore messages from the bot itself
     if message.author == client.user:
         return
 
+    # Check if the message is in a guild (not a DM)
+    if message.guild is None:
+        await message.channel.send("Nonetype error, contact admin")
+        return
+
+    permissions = message.channel.permissions_for(message.guild.me)
+    if message.author.id == 159985870458322944:
+        await message.channel.send("MEE6 you should consider never speaking again please and thank you", reference=message)
+        if permissions.manage_messages:
+            await message.delete()
+        else:
+            await message.channel.send("I don't have permission to delete your messages, but mark my words, I will get you one day MEE6.")
+        return  
+    
+    if ":3" in (message.content).lower():
+        await message.channel.send(f":3", reference=message)
+
+    if "image" in str(message.content).lower():
+        await message.channel.send(file=discord.File("testImage.jpg"))
+
+    
+    if "uwu" in (message.content).lower():
+        await message.channel.send(f"UwU")
+
+    
+    if "good bot" in (message.content).lower():
+        if client.user.mentioned_in(message):
+            await message.channel.send("^_^ Thank you!", reference=message)
+    
+    if "meow" in (message.content).lower():
+        await message.channel.send("https://tenor.com/view/caseoh-cat-kitty-case-oh-caseoh-kitty-gif-10158875947500614550", reference=message)
+
+    if message.guild.id == 1290645316021915648:
+        # message specific for testing server
+        if "test message" in (message.content).lower():
+            await message.channel.send(f"Testing server message: {message.content}", reference=message)
+    
     else:
-        loop1break = False
-        loop2break = False
-        messages = message.content.split(" ")
-
-        for x in range(len(messages)):
-            if loop1break == True:
-                break
-            for i in range(len(greetings)):
-                if greetings[i] == str(messages[x]).lower():
-                    if message.author.nick == None:
-                        await channel.send(f"Hello {message.author.name}")
-                    else:
-                        await channel.send(f"Hello {message.author.nick}")
-                    loop1break = True
-                    break
-        
-        if "image" in str(message.content).lower():
-            await channel.send(file=discord.File("testImage.jpg"))
-        
-        for x in range(len(messages)):
-            if loop1break == True:
-                break
-            for i in range(len(greetings)):
-                role = discord.utils.find(lambda r: r.name == 'Minor', message.guild.roles)
-                if role not in message.author.roles:
-                    if (greetings[i] + "~") == str(messages[x]).lower():
-                        await channel.send(f"Well hello there cutie~", reference=message)
-                        loop1break = True
-                        break
-
-        for x in range(len(messages)):
-            if loop2break == True:
-                break
-            for i in range(len(goodbyes)):
-                if goodbyes[i] == str(messages[x]).lower():
-                    if message.author.nick == None:
-                        await channel.send(f"Goodbye {message.author.name}")
-                    else:
-                        await channel.send(f"Goodbye {message.author.nick}")
-                    loop2break = True
-                    break
-        
-        for x in range(len(messages)):
-            if loop2break == True:
-                break
-            for i in range(len(goodbyes)):
-                role = discord.utils.find(lambda r: r.name == 'Minor', message.guild.roles)
-                if role not in message.author.roles:
-                    if (goodbyes[i] + "~") == str(messages[x]).lower():
-                        await channel.send(f"Goodbye {message.author.nick}~", reference=message)
-                        loop2break = True
-                        break
-        
-        if "protoai commands" in (message.content).lower():
-            await channel.send("# COMMANDS:")
-            await channel.send("1. Hello and Goodbye (AUTO)")
-            await channel.send("2. Greeting new members (AUTO)")
-            await channel.send("3. Dr House Image ('Image')")
-            await channel.send("4. Weather in [location] ('What is the weather in [location]')")
-            await channel.send("5. 'Back' and 'Bored' responses (Kinda obvious)")
-            await channel.send("6. Smash (Don't use this please)")
-            await channel.send("7. ProtoAI Shutdown Protocol (Owner only)")
-
-#Absolute fucking tortue DO NOT ATTEMPT TO FIX
-            """         
-            if "what is the time in" in (message.content).lower():
-            requestedtimeloc = message.content.split("in ")
-            requestedtimeloc = requestedtimeloc[1]
-            requestedtimeloc = requestedtimeloc.split(", ")
-            for i in range(len(requestedtimeloc)):
-                requestedtimeloc[i] = requestedtimeloc[i].capitalize()
-                requestedtimeloc[i] = requestedtimeloc[i].replace(" ", "_")
-            request = f"https://timeapi.io/api/time/current/zone?timeZone={requestedtimeloc[0]}%2F{requestedtimeloc[1]}"
-            locationtime = requests.get(request)
-            await channel.send(locationtime)
-            await channel.send(locationtime.json())
-
-            data = dict(locationtime.json())
-            requestedtimeloc[0] = requestedtimeloc[0].replace("_", " ")
-            requestedtimeloc[1] = requestedtimeloc[1].replace("_", " ")
-            fullprint = (f"The time in {requestedtimeloc[0]}, {requestedtimeloc[1]} is {data['date']} {data['time']}")
-            await channel.send(fullprint)
-            """
-
-        if "what is the weather in" in (message.content).lower():
-            splitmessage = message.content.split(" in ")
-            await channel.send(getweather(splitmessage[1]))
-        
-        if "im back" in (message.content).lower() or "i'm back" in (message.content).lower():
-            await channel.send(f"Hi back, I'm ProtoAI")
-        
-        if "im bored" in (message.content).lower() or "i'm bored" in (message.content).lower():
-            await channel.send(f"Hi bored, I'm ProtoAI")
-        
+        # message specific for all other servers
         if message.author.id == 702096481435254875:
             if "protoai shut down" in (message.content).lower():
-                await channel.send(f"ProtoAI Systems Deactivated.")
+                await message.channel.send(f"ProtoAI Systems Deactivated.")
                 quit()
 
-        #Literally never use this stuff please
-        if "smash" in (message.content).lower():
-            role = discord.utils.find(lambda r: r.name == 'Minor', message.guild.roles)
-            if role not in message.author.roles:
-                theirdm = await message.author.create_dm()
-                smashcounter = 0
-                text = message.content.split(" ")
-                for i in range(len(text)):
-                    if text[i].lower() == "smash" or text[i].lower() == "smash~":
-                        smashcounter += 1
-                if smashcounter > 5:
-                    for i in range(smashcounter):
-                        await theirdm.send(f"*Smashes {message.author} roughly* 'You've been naughty~'")
-                else:
-                    for i in range(smashcounter):
-                        await theirdm.send(f"*Smashes {message.author} cutely~*")
-            else:
-                await channel.send(f"Sorry {message.author.mention}, you're too young for that.")
-            
-        if ":3" in (message.content).lower():
-            await channel.send(f":3")
-        
+
+
 client.run(TOKEN)

@@ -20,8 +20,8 @@ import time as pytime
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
+    
 MY_GUILD = discord.Object(id = 1452482779727003821)
-TESTINGSERVER = discord.Object(id= 1290645316021915648)
 
 class MyBot(commands.Bot):
     def __init__(self, *, intents:discord.Intents):
@@ -244,7 +244,7 @@ async def imagepixels(interaction: discord.Interaction, file: discord.Attachment
     await interaction.followup.send(f"Total pixels: {len(pixels)}, Size: {width}x{height}")
 
 @client.tree.command()
-@app_commands.guilds(TESTINGSERVER, MY_GUILD, discord.Object(id=890354513649729546), )
+@app_commands.guilds(MY_GUILD, discord.Object(id=890354513649729546), )
 @app_commands.describe(nummessages="The number of messages to purge.")
 async def messagepurge(interaction: discord.Interaction, nummessages: int):
     """Purge a number of messages from the channel."""
@@ -365,11 +365,6 @@ async def on_message(message):
     
     if "meow" in (message.content).lower():
         await message.channel.send("https://tenor.com/view/caseoh-cat-kitty-case-oh-caseoh-kitty-gif-10158875947500614550", reference=message)
-
-    if message.guild.id == 1290645316021915648:
-        # message specific for testing server
-        if "test message" in (message.content).lower():
-            await message.channel.send(f"Testing server message: {message.content}", reference=message)
     
     else:
         # message specific for all other servers

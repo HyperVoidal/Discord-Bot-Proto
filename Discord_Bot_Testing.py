@@ -20,7 +20,10 @@ import time as pytime
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
-    
+
+#determine root path
+root_path = os.path.dirname(os.path.abspath(__file__))
+
 MY_GUILD = discord.Object(id = 1452482779727003821)
 
 class MyBot(commands.Bot):
@@ -44,8 +47,8 @@ global rpchannel
 rpchannel = None
 
 #interpret weather API
-
-f = open("SECRETAPIKEY.txt", "r")
+grabapi = os.path.join(root_path, "SECRETAPIKEY.txt")
+f = open(grabapi, "r")
 code = f.read()
 f.close()
 b = base64.b64decode(code)
@@ -199,27 +202,18 @@ async def assignrole(interaction: discord.Interaction, first_value: str, second_
         await interaction.response.send_message(f"Sorry, you do not have permission to use this command.", ephemeral=True)
 
 @client.tree.command()
-@app_commands.describe(first_value="User whose profile picture you wish to show.")
-async def profilepic(interaction: discord.Interaction, first_value: str):
+@app_commands.describe(user="User whose profile picture you wish to show.")
+async def profilepic(interaction: discord.Interaction, user: discord.User):
     """Show the profile picture of a user."""
-    try:
-        member = client.get_user(int(first_value))
-    except ValueError:
-        try:
-            id = first_value.replace("<", "").replace(">", "").replace("@", "").replace("!", "")
-            member = client.get_user(int(id))
-        except Exception as e:
-            print(e)
-            await interaction.response.send_message(f"Invalid user", ephemeral=True)
-            return
-    
-    if member is None:
-        await interaction.response.send_message(f"User not found", ephemeral=True)
-        return
-    
-    avatar_url = member.avatar.url
-    embed = discord.Embed(title=f"{member.name}'s Profile Picture", color=0x00ff00)
-    embed.set_image(url=avatar_url)
+
+    avatar = user.display_avatar.url
+
+    embed = discord.Embed(
+        title=f"{user.name}'s Profile Picture",
+        color=0x00ff00
+    )
+    embed.set_image(url=avatar)
+
     await interaction.response.send_message(embed=embed)
 
 @client.tree.command()
@@ -234,13 +228,13 @@ async def imagepixels(interaction: discord.Interaction, file: discord.Attachment
 
     image_url = file.url
     response = requests.get(image_url)
-    with open("downloadedImage.jpg", "wb") as f:
+    with open(f"{root_path}/downloadedImage.jpg", "wb") as f:
         f.write(response.content)
-    
-    img = Image.open("downloadedImage.jpg")
+
+    img = Image.open(f"{root_path}/downloadedImage.jpg")
     width, height = img.size
     pixels = list(img.getdata())
-    await interaction.followup.send(file=discord.File("downloadedImage.jpg"))
+    await interaction.followup.send(file=discord.File(f"{root_path}/downloadedImage.jpg"))
     await interaction.followup.send(f"Total pixels: {len(pixels)}, Size: {width}x{height}")
 
 @client.tree.command()
@@ -259,30 +253,6 @@ async def messagepurge(interaction: discord.Interaction, nummessages: int):
             await interaction.response.send_message("I don't have permission to delete messages TwT", ephemeral=True)
     else:
         await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
-
-
-"""
-@client.tree.command()
-@app_commands.describe(first_value="The value to add to the counter.")
-@app_commands.guilds(discord.Object(id=890354513649729546))  # Specify the guild ID here
-async def kangthrowcounter(interaction: discord.Interaction, first_value: int):
-    #Count the number of times Kang has thrown.
-    if interaction.user.id == 525919351489036308:
-        await interaction.response.send_message("Nuh uh :3", ephemeral=True)
-        return
-    with open("KangThrowCounter.txt", "r") as f:
-        count = f.read()
-    if count == "":
-        count = 0
-    if int(first_value) < 0:
-        first_value -= first_value * 2
-    c = int(count) + first_value
-    with open("KangThrowCounter.txt", "w") as f:
-        f.write(str(c))
-    channel = interaction.channel
-    await interaction.response.send_message(f"Added {first_value} to the counter.")
-    await channel.send(f"Kang has thrown {c} times so far.")
-"""
     
 @client.tree.command(name='sync', description='Owner only')
 async def sync(interaction: discord.Interaction):
@@ -300,9 +270,7 @@ async def sync(interaction: discord.Interaction):
 async def on_ready():
     print(f'{client.user} has connected to Discord!')
     await client.change_presence(activity=discord.Game(name="Playing with your data"))
-    with open("AIRPMem.txt", "w") as f:
-        #wipe memory
-        f.write("")
+    await client.tree.sync(guild=MY_GUILD) #start sync directly to main server, doesn't work globally (global takes an hour or so automatically)
 
     
 
@@ -352,7 +320,8 @@ async def on_message(message):
         await message.channel.send(f":3", reference=message)
 
     if "image" in str(message.content).lower():
-        await message.channel.send(file=discord.File("testImage.jpg"))
+        if client.user.mentioned_in(message):
+            await message.channel.send(file=discord.File(f"{root_path}/testImage.jpg"))
 
     
     if "uwu" in (message.content).lower():
@@ -367,7 +336,6 @@ async def on_message(message):
         await message.channel.send("https://tenor.com/view/caseoh-cat-kitty-case-oh-caseoh-kitty-gif-10158875947500614550", reference=message)
     
     else:
-        # message specific for all other servers
         if message.author.id == 702096481435254875:
             if "protoai shut down" in (message.content).lower():
                 await message.channel.send(f"ProtoAI Systems Deactivated.")

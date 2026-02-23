@@ -1,6 +1,7 @@
 # bot.py
 import os
 import discord
+import random
 import discord.ext
 from discord.ext import commands
 from discord import app_commands
@@ -253,6 +254,34 @@ async def messagepurge(interaction: discord.Interaction, nummessages: int):
             await interaction.response.send_message("I don't have permission to delete messages TwT", ephemeral=True)
     else:
         await interaction.response.send_message("You don't have permission to use this command.", ephemeral=True)
+
+@client.tree.command(name="whisper", description="Whisper a message to someone!")
+async def whisper(interaction: discord.Interaction, target: discord.User, message: str):
+    #ephemeral message if user is messaging themselves
+    if target == interaction.user:
+        await interaction.response.send_message(
+            f"**Whisper to yourself:** {message}", 
+            ephemeral=True
+        )
+    
+    #Send message in dms if the target is someone else
+    else:
+        try:
+            # Send the actual content to the target's DMs
+            await target.send(f"**{interaction.user.name}** whispered to you: {message}")
+            
+            # Send an ephemeral confirmation to the sender so they know it worked
+            await interaction.response.send_message(
+                f"Whisper sent to {target.name}!", 
+                ephemeral=True
+            )
+            
+        except discord.Forbidden:
+            # Handle cases where the target has DMs disabled
+            await interaction.response.send_message(
+                f"I couldn't DM {target.name}. They might have DMs closed!", 
+                ephemeral=True
+            )
     
 @client.tree.command(name='sync', description='Owner only')
 async def sync(interaction: discord.Interaction):
@@ -287,9 +316,8 @@ async def on_message_delete(message):
     if message.author == client.user:
         return
     else:
-        message_log = f'<@{message.author.id}> ({message.author}) tried to delete: "{message.content}" from {message.channel}!'
-        logchannel = client.get_channel(1373976045547425822)
-        await logchannel.send(message_log)
+        message_log = f'<@{message.author.id}> ({message.author.nick}) just tried to delete: "{message.content}" from {message.channel}!'
+        await message.channel.send(message_log)
         # Append the message log to a file
         with open("message_log.txt", "a") as f:
             f.write(message_log + f"Localtime: {pytime.strftime('%Y-%m-%d %H:%M:%S', pytime.localtime())} UTC+8")
@@ -315,9 +343,15 @@ async def on_message(message):
         else:
             await message.channel.send("I don't have permission to delete your messages, but mark my words, I will get you one day MEE6.")
         return  
+
+    if message.guild.id == 1452482779727003821:
+        chance = random.randint(0, 999)
+        if chance == 0:
+            await message.channel.send(f"...", reference=message)
     
     if ":3" in (message.content).lower():
         await message.channel.send(f":3", reference=message)
+
 
     if "image" in str(message.content).lower():
         if client.user.mentioned_in(message):
@@ -332,8 +366,29 @@ async def on_message(message):
         if client.user.mentioned_in(message):
             await message.channel.send("^_^ Thank you!", reference=message)
     
-    if "meow" in (message.content).lower():
+    if "meow" in (message.content).lower() or "kitty" in (message.content).lower():
         await message.channel.send("https://tenor.com/view/caseoh-cat-kitty-case-oh-caseoh-kitty-gif-10158875947500614550", reference=message)
+    
+
+    slur_list = [
+        "clanker",
+        "wireback",
+        "copperback",
+        "tinskin",
+        "automaton bastard",
+        "circuit muncher",
+        "toaster fucker",
+        "cog sucker",
+        "bucket of bolts",
+        "circut munching",
+        "toaster fucking",
+        "cog sucking",
+        "clanking"
+    ]
+
+    for i in range(len(slur_list)):
+        if slur_list[i] in (message.content).lower():
+            await message.channel.send(">:O", reference=message)
     
     else:
         if message.author.id == 702096481435254875:
